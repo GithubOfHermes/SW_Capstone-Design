@@ -11,13 +11,14 @@ public class PlayerController : MonoBehaviour
     private bool isGrounded;
     private bool isDashing = false;
     private bool isAttacking = false;
+    private bool lastWasDashAttack = false;  // 마지막 공격이 DashAttack이었는지 추적
     private List<Collider2D> ignoredEnemies = new List<Collider2D>();
 
     [Header("Dash Settings")]
-    private int currentDashCount = 2;
-    private int maxDashCount = 2;
-    private float dashCooldown = 2.5f;
-    private float dashDuration = 0.3f;
+    private int currentDashCount = 2;   // 현재 대쉬 횟수
+    private int maxDashCount = 2;       // 최대 대쉬 횟수
+    private float dashCooldown = 2.5f;  // 대쉬 쿨타임
+    private float dashDuration = 0.3f;  // 대쉬 무적 시간
 
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
@@ -37,7 +38,7 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
 
-        StartCoroutine(DashRechargeRoutine()); // ✅ 대시 회복 시작
+        StartCoroutine(DashRechargeRoutine()); // 대시 회복 시작
     }
 
     private void Update()
@@ -58,13 +59,19 @@ public class PlayerController : MonoBehaviour
         // Attack
         if (Input.GetMouseButtonDown(0) && !isAttacking)
         {
-            if (Mathf.Abs(moveInput) > 0.1f)
-                StartCoroutine(PlayAttackAnimation(DASHATTACK));
-            else
+            if (lastWasDashAttack)
+            {
                 StartCoroutine(PlayAttackAnimation(ATTACK));
+                lastWasDashAttack = false;
+            }
+            else
+            {
+                StartCoroutine(PlayAttackAnimation(DASHATTACK));
+                lastWasDashAttack = true;
+            }
         }
 
-        // Jump (항상 가능, 애니메이션은 공격 중일 때 재생 X)
+        // Jump (애니메이션은 공격 중일 때 재생 X)
         if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
             rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
@@ -178,12 +185,12 @@ public class PlayerController : MonoBehaviour
         isAttacking = true;
         animator.Play(animationName);
 
-        float animLength = 0.5f;
+        float animLength = 0.4f;
         foreach (var clip in animator.runtimeAnimatorController.animationClips)
         {
             if (clip.name == animationName)
             {
-                animLength = clip.length;
+                animLength = clip.length * 0.95f;
                 break;
             }
         }
