@@ -16,7 +16,7 @@ Unity를 통한 2D 로그라이크 장르의 게임입니다.
         <img src="https://github.com/inNewPG.png?size=100" width="100px;" alt=""/><br /><sub><b>박하민</b></sub></a><br />
       </td>
       <td align="center"><a href="https://github.com/namhegg">
-        <img src="https://github.com/Ryder76524.png?size=100" width="100px;" alt=""/><br /><sub><b>김대</b></sub></a><br />
+        <img src="https://github.com/Ryder76524.png?size=100" width="100px;" alt=""/><br /><sub><b>김대명</b></sub></a><br />
       </td>
     </tr>
   </tbody>
