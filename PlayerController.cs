@@ -13,6 +13,7 @@ public class PlayerController : MonoBehaviour
     private bool isAttacking = false;
     private bool lastWasDashAttack = false;
     private List<Collider2D> ignoredEnemies = new List<Collider2D>();
+    private List<Collider2D> ignoredPlatforms = new List<Collider2D>();
     private bool isInvincible = false;
     private bool isDead = false;
     [SerializeField] private GameObject Damage;
@@ -50,6 +51,8 @@ public class PlayerController : MonoBehaviour
     private readonly string HURT = "Hurt";
     private readonly string DEATH = "Death";
 
+    private bool isCroushing = false;
+
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
@@ -83,7 +86,6 @@ public class PlayerController : MonoBehaviour
         isDead = true;
         animator.Play(DEATH);
         rb.linearVelocity = Vector2.zero;
-        rb.bodyType = RigidbodyType2D.Kinematic;
         enabled = false;
         StartCoroutine(WaitForDeathAnimation());
     }
@@ -168,11 +170,15 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Jump
-        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        // New Croush Mechanic
+        if (Input.GetKey(KeyCode.S) && Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        {
+            StartCoroutine(CroushRoutine());
+        }
+        // Regular Jump
+        else if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
             rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
-
             if (!isAttacking)
             {
                 PlayAnimationIfNotPlaying(JUMP);
@@ -180,7 +186,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // Falling
-        if (!isGrounded && rb.linearVelocity.y < 0 && !isAttacking)
+        if (!isGrounded && rb.linearVelocity.y < 0 && !isAttacking && !isCroushing)
         {
             PlayAnimationIfNotPlaying(JUMP);
             PlayAnimationIfNotPlaying(JUMP_TO_FALL);
@@ -193,7 +199,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // Movement Animations
-        if (!isAttacking && isGrounded && !isInvincible)
+        if (!isAttacking && isGrounded && !isInvincible && !isCroushing)
         {
             if (moveInput == 0)
                 PlayAnimationIfNotPlaying(IDLE);
@@ -204,13 +210,13 @@ public class PlayerController : MonoBehaviour
 
     private void OnCollisionEnter2D(Collision2D collision)
     {
-        if (collision.gameObject.CompareTag("Ground"))
+        if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Platform"))
             isGrounded = true;
     }
 
     private void OnCollisionExit2D(Collision2D collision)
     {
-        if (collision.gameObject.CompareTag("Ground"))
+        if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Platform"))
             isGrounded = false;
     }
 
@@ -222,8 +228,10 @@ public class PlayerController : MonoBehaviour
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
         GameObject[] enemyDamages = GameObject.FindGameObjectsWithTag("EnemyDamage");
+        GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
         Collider2D playerCol = GetComponent<Collider2D>();
 
+        // Ignore enemy collisions
         foreach (var enemy in enemies)
         {
             foreach (var col in enemy.GetComponentsInChildren<Collider2D>())
@@ -248,6 +256,19 @@ public class PlayerController : MonoBehaviour
             }
         }
 
+        // Ignore platform collisions
+        foreach (var platform in platforms)
+        {
+            foreach (var col in platform.GetComponentsInChildren<Collider2D>())
+            {
+                if (col != null && playerCol != null)
+                {
+                    Physics2D.IgnoreCollision(playerCol, col, true);
+                    ignoredPlatforms.Add(col);
+                }
+            }
+        }
+
         Vector2 dashDirection = Vector2.zero;
         if (Input.GetKey(KeyCode.W)) dashDirection += Vector2.up;
         if (Input.GetKey(KeyCode.S)) dashDirection += Vector2.down;
@@ -264,6 +285,7 @@ public class PlayerController : MonoBehaviour
 
         yield return new WaitForSeconds(dashDuration);
 
+        // Restore enemy collisions
         foreach (var col in ignoredEnemies)
         {
             if (col != null && playerCol != null)
@@ -273,7 +295,51 @@ public class PlayerController : MonoBehaviour
         }
         ignoredEnemies.Clear();
 
+        // Restore platform collisions
+        foreach (var col in ignoredPlatforms)
+        {
+            if (col != null && playerCol != null)
+            {
+                Physics2D.IgnoreCollision(playerCol, col, false);
+            }
+        }
+        ignoredPlatforms.Clear();
+
         isDashing = false;
+    }
+
+    private IEnumerator PlatformIgnoringJump()
+    {
+        Collider2D playerCol = GetComponent<Collider2D>();
+        GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
+
+        // Ignore platform collisions
+        foreach (var platform in platforms)
+        {
+            foreach (var col in platform.GetComponentsInChildren<Collider2D>())
+            {
+                if (col != null && playerCol != null)
+                {
+                    Physics2D.IgnoreCollision(playerCol, col, true);
+                    ignoredPlatforms.Add(col);
+                }
+            }
+        }
+
+        rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+        PlayAnimationIfNotPlaying(JUMP);
+
+        yield return new WaitForSeconds(0.5f);
+
+        // Restore platform collisions
+        foreach (var col in ignoredPlatforms)
+        {
+            if (col != null && playerCol != null)
+            {
+                Physics2D.IgnoreCollision(playerCol, col, false);
+            }
+        }
+        ignoredPlatforms.Clear();
     }
 
     private IEnumerator DashRechargeRoutine()
@@ -350,5 +416,40 @@ public class PlayerController : MonoBehaviour
         lastSkill2Time = Time.time;
         Debug.Log("Skill2 사용");
         // 여기에 Skill2의 실제 구현을 추가할 수 있습니다
+    }
+
+    private IEnumerator CroushRoutine()
+    {
+        isCroushing = true;
+        
+        Collider2D playerCol = GetComponent<Collider2D>();
+        GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
+        List<Collider2D> ignoredPlatforms = new List<Collider2D>();
+
+        // Ignore platform collisions
+        foreach (var platform in platforms)
+        {
+            foreach (var col in platform.GetComponentsInChildren<Collider2D>())
+            {
+                if (col != null && playerCol != null)
+                {
+                    Physics2D.IgnoreCollision(playerCol, col, true);
+                    ignoredPlatforms.Add(col);
+                }
+            }
+        }
+
+        yield return new WaitForSeconds(0.5f);
+
+        // Restore platform collisions
+        foreach (var col in ignoredPlatforms)
+        {
+            if (col != null && playerCol != null)
+            {
+                Physics2D.IgnoreCollision(playerCol, col, false);
+            }
+        }
+
+        isCroushing = false;
     }
 }
