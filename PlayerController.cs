@@ -39,8 +39,9 @@ public class PlayerController : MonoBehaviour
     private float skill2Cooldown = 5f;
     private float lastSkill1Time = -999f;
     private float lastSkill2Time = -999f;
-    [SerializeField] private GameObject skill1Prefab; // Skill_1 프리팹 참조
+    [SerializeField] private GameObject skill1Prefab; // Skill_1 프리팹 
 
+    [Header("Animation")]
     private readonly string IDLE = "Idle";
     private readonly string RUN = "Run";
     private readonly string JUMP = "jump";
@@ -110,7 +111,7 @@ public class PlayerController : MonoBehaviour
     {
         isInvincible = true;
         animator.Play(HURT, 0, 0f);
-        yield return new WaitForSeconds(0.4f); // 더 잘 보이도록 0.4초로 증가
+        yield return new WaitForSeconds(0.4f); // 피격 애니메이션 시간
         isInvincible = false;
 
         if (!isAttacking)
@@ -170,7 +171,7 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // New Croush Mechanic
+        // DownJump
         if (Input.GetKey(KeyCode.S) && Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
             StartCoroutine(CroushRoutine());
@@ -415,7 +416,7 @@ public class PlayerController : MonoBehaviour
     {
         lastSkill2Time = Time.time;
         Debug.Log("Skill2 사용");
-        // 여기에 Skill2의 실제 구현을 추가할 수 있습니다
+        // 여기에 Skill2의 구현 가능
     }
 
     private IEnumerator CroushRoutine()
