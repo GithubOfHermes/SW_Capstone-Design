@@ -16,23 +16,24 @@ public class PlayerController : MonoBehaviour
     private List<Collider2D> ignoredPlatforms = new List<Collider2D>();
     private bool isInvincible = false;
     private bool isDead = false;
+    private bool isOnTrap = false;
     [SerializeField] private GameObject Damage;
 
     [Header("Health")]
-    [SerializeField] private float maxHealth = 100f;
-    private float currentHealth;
+    private int currentHP;
+    private int maxHP = 100;
     private float lastDamageTime = -999f;
-    [SerializeField] private float repeatDamageCooldown = 0.7f;
+    [SerializeField] private float repeatDamageCooldown = 0.3f;
 
     [Header("Dash Settings")]
-    private int currentDashCount = 2;
-    private int maxDashCount = 2;
+    private int currentDashCount = 3;
+    private int maxDashCount = 3;
     private float dashCooldown = 2.5f;
-    private float dashDuration = 0.5f;
+    private float dashDuration = 0.25f;
 
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
-    [SerializeField] private float jumpForce = 6f;
+    [SerializeField] private float jumpForce = 15f;
 
     [Header("Skills")]
     private float skill1Cooldown = 5f;
@@ -52,27 +53,39 @@ public class PlayerController : MonoBehaviour
     private readonly string HURT = "Hurt";
     private readonly string DEATH = "Death";
 
+    [Header("Attack")]
+    [SerializeField] private int attackDamage = 5;
+
     private bool isCroushing = false;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
-        currentHealth = maxHealth;
+        currentHP = maxHP;
+        if (HUDManager.Instance != null)
+        {
+            HUDManager.Instance.SetInitialHP(maxHP);
+        }
         StartCoroutine(DashRechargeRoutine());
     }
 
     public bool IsInvincible() => isInvincible;
 
-    public void TakeDamage(float enemyDamage)
+    public void TakeDamage(float damage)
     {
         if (isDead || isInvincible || Time.time - lastDamageTime < repeatDamageCooldown) return;
 
         lastDamageTime = Time.time;
-        currentHealth -= enemyDamage;
-        Debug.Log($"Player가 {enemyDamage}를 받았다! 현재재 HP: {currentHealth}");
+        currentHP -= (int)damage;
+        Debug.Log($"Player가 {damage}의 데미지를 받았다! 현재 HP: {currentHP}");
 
-        if (currentHealth <= 0)
+        if (HUDManager.Instance != null)
+        {
+            HUDManager.Instance.SetHP(currentHP);
+        }
+
+        if (currentHP <= 0)
         {
             Die();
         }
@@ -110,8 +123,8 @@ public class PlayerController : MonoBehaviour
     private IEnumerator HurtRoutine()
     {
         isInvincible = true;
-        animator.Play(HURT, 0, 0f);
-        yield return new WaitForSeconds(0.4f); // 피격 애니메이션 시간
+        animator.Play(HURT);
+        yield return new WaitForSeconds(0.2f);
         isInvincible = false;
 
         if (!isAttacking)
@@ -135,6 +148,12 @@ public class PlayerController : MonoBehaviour
     {
         if (isDashing || isDead) return;
 
+        // Trap 데미지 처리
+        if (isOnTrap)
+        {
+            TakeDamage(5f);
+        }
+
         float moveInput = Input.GetAxisRaw("Horizontal");
 
         // Movement
@@ -143,7 +162,7 @@ public class PlayerController : MonoBehaviour
         // Flip
         if (moveInput != 0)
         {
-            transform.localScale = new Vector3(Mathf.Sign(moveInput) * 2, 2, 2);
+            transform.localScale = new Vector3(Mathf.Sign(moveInput) * 1.5f, 1.5f, 1.5f);
         }
 
         // Skills
@@ -209,16 +228,49 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private int groundContactCount = 0;
+
     private void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Platform"))
+        {
+            groundContactCount++;
             isGrounded = true;
+        }
     }
 
     private void OnCollisionExit2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Platform"))
-            isGrounded = false;
+        {
+            groundContactCount = Mathf.Max(0, groundContactCount - 1);
+            if (groundContactCount == 0)
+                isGrounded = false;
+        }
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (other.CompareTag("Trap"))
+        {
+            isOnTrap = true;
+        }
+    }
+
+    private void OnTriggerExit2D(Collider2D other)
+    {
+        if (other.CompareTag("Trap"))
+        {
+            isOnTrap = false;
+        }
+    }
+
+    private void OnTriggerStay2D(Collider2D other)
+    {
+        if (other.CompareTag("Trap"))
+        {
+            isOnTrap = true;
+        }
     }
 
     private IEnumerator DashRoutine()
@@ -228,7 +280,7 @@ public class PlayerController : MonoBehaviour
         PlayAnimationIfNotPlaying(DASH);
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
-        GameObject[] enemyDamages = GameObject.FindGameObjectsWithTag("EnemyDamage");
+        GameObject[] enemyAttacks = GameObject.FindGameObjectsWithTag("EnemyAttack");
         GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
         Collider2D playerCol = GetComponent<Collider2D>();
 
@@ -245,9 +297,9 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        foreach (var enemyDamage in enemyDamages)
+        foreach (var enemyAttack in enemyAttacks)
         {
-            foreach (var col in enemyDamage.GetComponentsInChildren<Collider2D>())
+            foreach (var col in enemyAttack.GetComponentsInChildren<Collider2D>())
             {
                 if (col != null && playerCol != null)
                 {
@@ -270,21 +322,33 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        Vector2 dashDirection = Vector2.zero;
-        if (Input.GetKey(KeyCode.W)) dashDirection += Vector2.up;
-        if (Input.GetKey(KeyCode.S)) dashDirection += Vector2.down;
-        if (Input.GetKey(KeyCode.A)) dashDirection += Vector2.left;
-        if (Input.GetKey(KeyCode.D)) dashDirection += Vector2.right;
+        float dashTimer = 0f;
+        Vector2 initialVerticalDirection = Vector2.zero;
+        if (Input.GetKey(KeyCode.W)) initialVerticalDirection = Vector2.up;
+        if (Input.GetKey(KeyCode.S)) initialVerticalDirection = Vector2.down;
 
-        if (dashDirection == Vector2.zero)
+        while (dashTimer < dashDuration)
         {
-            float xDir = transform.localScale.x > 0 ? 1f : -1f;
-            dashDirection = new Vector2(xDir, 0f);
+            Vector2 dashDirection = Vector2.zero;
+            
+            // 수직 방향은 초기 입력값 유지
+            dashDirection += initialVerticalDirection;
+            
+            // 수평 방향은 실시간으로 업데이트
+            if (Input.GetKey(KeyCode.A)) dashDirection += Vector2.left;
+            if (Input.GetKey(KeyCode.D)) dashDirection += Vector2.right;
+
+            if (dashDirection == Vector2.zero)
+            {
+                float xDir = transform.localScale.x > 0 ? 1f : -1f;
+                dashDirection = new Vector2(xDir, 0f);
+            }
+
+            rb.linearVelocity = dashDirection.normalized * moveSpeed * 3.0f;
+            
+            dashTimer += Time.deltaTime;
+            yield return null;
         }
-
-        rb.linearVelocity = dashDirection.normalized * moveSpeed * 3.0f;
-
-        yield return new WaitForSeconds(dashDuration);
 
         // Restore enemy collisions
         foreach (var col in ignoredEnemies)
@@ -359,11 +423,18 @@ public class PlayerController : MonoBehaviour
     private IEnumerator PlayAttackAnimation(string animationName)
     {
         isAttacking = true;
+        currentAnim = animationName; // 현재 애니메이션 이름 고정
         animator.Play(animationName);
 
         if (Damage != null)
         {
             Damage.SetActive(true);
+            BoxCollider2D damageCollider = Damage.GetComponent<BoxCollider2D>();
+            if (damageCollider == null)
+            {
+                damageCollider = Damage.AddComponent<BoxCollider2D>();
+                damageCollider.isTrigger = true;
+            }
         }
 
         float animLength = 0.4f;
@@ -384,15 +455,21 @@ public class PlayerController : MonoBehaviour
         }
 
         isAttacking = false;
+
+        currentAnim = ""; // 공격 종료 후 currentAnim 초기화
     }
+
+
+    private string currentAnim = "";
 
     private void PlayAnimationIfNotPlaying(string animationName)
     {
-        if (!animator.GetCurrentAnimatorStateInfo(0).IsName(animationName))
-        {
-            animator.Play(animationName);
-        }
+        if (currentAnim == animationName) return;
+
+        animator.Play(animationName);
+        currentAnim = animationName;
     }
+
 
     private void UseSkill1()
     {
@@ -452,5 +529,37 @@ public class PlayerController : MonoBehaviour
         }
 
         isCroushing = false;
+    }
+
+    private void OnDamageCollision(Collider2D collision)
+    {
+        if (collision.CompareTag("Enemy"))
+        {
+            EnemyController enemy = collision.GetComponent<EnemyController>();
+            if (enemy != null)
+            {
+                enemy.TakeDamage(attackDamage);
+            }
+        }
+    }
+
+    private void OnEnable()
+    {
+        if (Damage != null)
+        {
+            BoxCollider2D damageCollider = Damage.GetComponent<BoxCollider2D>();
+            if (damageCollider == null)
+            {
+                damageCollider = Damage.AddComponent<BoxCollider2D>();
+                damageCollider.isTrigger = true;
+            }
+            
+            DamageCollisionHandler handler = Damage.GetComponent<DamageCollisionHandler>();
+            if (handler == null)
+            {
+                handler = Damage.AddComponent<DamageCollisionHandler>();
+                handler.Initialize(OnDamageCollision);
+            }
+        }
     }
 }
