@@ -23,13 +23,11 @@ public class PlayerController : MonoBehaviour
     private int currentHP;
     private int maxHP = 100;
     private float lastDamageTime = -999f;
-    [SerializeField] private float repeatDamageCooldown = 0.3f;
+    [SerializeField] private float repeatDamageCooldown = 2.0f;
 
     [Header("Dash Settings")]
-    private int currentDashCount = 3;
-    private int maxDashCount = 3;
     private float dashCooldown = 2.5f;
-    private float dashDuration = 0.25f;
+    private float dashDuration = 0.4f;
 
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
@@ -54,20 +52,17 @@ public class PlayerController : MonoBehaviour
     private readonly string DEATH = "Death";
 
     [Header("Attack")]
-    [SerializeField] private int attackDamage = 5;
+    [SerializeField] private float attackDamage = 5f;
 
     private bool isCroushing = false;
+    private bool isHurting = false;
+
 
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
         currentHP = maxHP;
-        if (HUDManager.Instance != null)
-        {
-            HUDManager.Instance.SetInitialHP(maxHP);
-        }
-        StartCoroutine(DashRechargeRoutine());
     }
 
     public bool IsInvincible() => isInvincible;
@@ -79,11 +74,7 @@ public class PlayerController : MonoBehaviour
         lastDamageTime = Time.time;
         currentHP -= (int)damage;
         Debug.Log($"Player가 {damage}의 데미지를 받았다! 현재 HP: {currentHP}");
-
-        if (HUDManager.Instance != null)
-        {
-            HUDManager.Instance.SetHP(currentHP);
-        }
+        HUDManager.Instance.ReduceHP((int)damage);
 
         if (currentHP <= 0)
         {
@@ -91,7 +82,10 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            StartCoroutine(HurtRoutine());
+            if (!isInvincible) // 애니메이션 중복 방지
+            {
+                StartCoroutine(HurtRoutine());
+            }
         }
     }
 
@@ -122,10 +116,24 @@ public class PlayerController : MonoBehaviour
 
     private IEnumerator HurtRoutine()
     {
+        isHurting = true;
         isInvincible = true;
+        currentAnim = HURT;
         animator.Play(HURT);
-        yield return new WaitForSeconds(0.2f);
-        isInvincible = false;
+
+        float hurtAnimLength = 0.5f;
+        foreach (var clip in animator.runtimeAnimatorController.animationClips)
+        {
+            if (clip.name == HURT)
+            {
+                hurtAnimLength = clip.length * 0.95f;
+                break;
+            }
+        }
+
+        yield return new WaitForSeconds(hurtAnimLength); // 애니메이션 끝
+
+        isHurting = false; // 여기서 풀어줌
 
         if (!isAttacking)
         {
@@ -142,7 +150,16 @@ public class PlayerController : MonoBehaviour
                 PlayAnimationIfNotPlaying(JUMP);
             }
         }
+
+        float remainingTime = repeatDamageCooldown - hurtAnimLength;
+        if (remainingTime > 0)
+            yield return new WaitForSeconds(remainingTime);
+
+        isInvincible = false;
+        currentAnim = "";
     }
+
+
 
     private void Update()
     {
@@ -206,16 +223,20 @@ public class PlayerController : MonoBehaviour
         }
 
         // Falling
-        if (!isGrounded && rb.linearVelocity.y < 0 && !isAttacking && !isCroushing)
+        if (!isHurting && !isGrounded && rb.linearVelocity.y < 0 && !isAttacking && !isCroushing)
         {
             PlayAnimationIfNotPlaying(JUMP);
             PlayAnimationIfNotPlaying(JUMP_TO_FALL);
         }
 
+
         // Dash
-        if (Input.GetMouseButtonDown(1) && currentDashCount > 0 && !isDashing)
+        if (Input.GetMouseButtonDown(1) && !isDashing)
         {
-            StartCoroutine(DashRoutine());
+            if (HUDManager.Instance != null && HUDManager.Instance.RequestDash())
+            {
+                StartCoroutine(DashRoutine());
+            }
         }
 
         // Movement Animations
@@ -226,6 +247,17 @@ public class PlayerController : MonoBehaviour
             else
                 PlayAnimationIfNotPlaying(RUN);
         }
+
+        // Z 키를 눌렀을 때 가장 가까운 아이템 줍기
+        if (Input.GetKeyDown(KeyCode.Z)){
+            ItemPickup closest = PickupController.GetClosestPickup(transform.position);
+            if (closest != null)
+            {
+                PickupEffectHandler.Apply(closest.pickupType, closest.healAmount, closest.goldAmount);
+                Destroy(closest.transform.root.gameObject); // 전체 프리팹 제거
+            }
+        }
+
     }
 
     private int groundContactCount = 0;
@@ -275,16 +307,16 @@ public class PlayerController : MonoBehaviour
 
     private IEnumerator DashRoutine()
     {
-        currentDashCount--;
         isDashing = true;
-        PlayAnimationIfNotPlaying(DASH);
+        currentAnim = DASH;
+        animator.Play(DASH);
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
         GameObject[] enemyAttacks = GameObject.FindGameObjectsWithTag("EnemyAttack");
         GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
         Collider2D playerCol = GetComponent<Collider2D>();
 
-        // Ignore enemy collisions
+        // 충돌 무시 설정
         foreach (var enemy in enemies)
         {
             foreach (var col in enemy.GetComponentsInChildren<Collider2D>())
@@ -309,7 +341,6 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Ignore platform collisions
         foreach (var platform in platforms)
         {
             foreach (var col in platform.GetComponentsInChildren<Collider2D>())
@@ -322,35 +353,43 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        float dashTimer = 0f;
-        Vector2 initialVerticalDirection = Vector2.zero;
-        if (Input.GetKey(KeyCode.W)) initialVerticalDirection = Vector2.up;
-        if (Input.GetKey(KeyCode.S)) initialVerticalDirection = Vector2.down;
+        // 입력 방향 계산
+        Vector2 dashDirection = Vector2.zero;
+        if (Input.GetKey(KeyCode.W)) dashDirection += Vector2.up;
+        if (Input.GetKey(KeyCode.S)) dashDirection += Vector2.down;
+        if (Input.GetKey(KeyCode.A)) dashDirection += Vector2.left;
+        if (Input.GetKey(KeyCode.D)) dashDirection += Vector2.right;
 
-        while (dashTimer < dashDuration)
+        if (dashDirection == Vector2.zero)
         {
-            Vector2 dashDirection = Vector2.zero;
-            
-            // 수직 방향은 초기 입력값 유지
-            dashDirection += initialVerticalDirection;
-            
-            // 수평 방향은 실시간으로 업데이트
-            if (Input.GetKey(KeyCode.A)) dashDirection += Vector2.left;
-            if (Input.GetKey(KeyCode.D)) dashDirection += Vector2.right;
-
-            if (dashDirection == Vector2.zero)
-            {
-                float xDir = transform.localScale.x > 0 ? 1f : -1f;
-                dashDirection = new Vector2(xDir, 0f);
-            }
-
-            rb.linearVelocity = dashDirection.normalized * moveSpeed * 3.0f;
-            
-            dashTimer += Time.deltaTime;
-            yield return null;
+            dashDirection = transform.localScale.x > 0 ? Vector2.right : Vector2.left;
         }
 
-        // Restore enemy collisions
+        // 정규화로 방향 벡터 통일
+        dashDirection = dashDirection.normalized;
+
+        float dashSpeed = moveSpeed * 4.2f;
+
+        // 좌우 대시 거리만 보정 
+        if (dashDirection.y == 0 && Mathf.Abs(dashDirection.x) > 0)
+        {
+            dashSpeed *= 0.85f;
+        }
+
+        // 대각선 대시만 느리게
+        if (dashDirection.x != 0 && dashDirection.y != 0)
+        {
+            dashSpeed *= 0.9f; // 대각선 감속
+        }
+
+        rb.linearVelocity = dashDirection * dashSpeed;
+
+        yield return new WaitForSeconds(dashDuration);
+
+        // 대시 종료 후 x속도만 정지
+        rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+
+        // 충돌 복구
         foreach (var col in ignoredEnemies)
         {
             if (col != null && playerCol != null)
@@ -360,7 +399,6 @@ public class PlayerController : MonoBehaviour
         }
         ignoredEnemies.Clear();
 
-        // Restore platform collisions
         foreach (var col in ignoredPlatforms)
         {
             if (col != null && playerCol != null)
@@ -371,7 +409,13 @@ public class PlayerController : MonoBehaviour
         ignoredPlatforms.Clear();
 
         isDashing = false;
+        currentAnim = "";
+        HUDManager.Instance.EndDash();
     }
+
+
+
+    public float GetDashCooldown() => dashCooldown;
 
     private IEnumerator PlatformIgnoringJump()
     {
@@ -406,20 +450,6 @@ public class PlayerController : MonoBehaviour
         }
         ignoredPlatforms.Clear();
     }
-
-    private IEnumerator DashRechargeRoutine()
-    {
-        while (true)
-        {
-            yield return new WaitForSeconds(dashCooldown);
-
-            if (currentDashCount < maxDashCount)
-            {
-                currentDashCount++;
-            }
-        }
-    }
-
     private IEnumerator PlayAttackAnimation(string animationName)
     {
         isAttacking = true;
@@ -475,10 +505,10 @@ public class PlayerController : MonoBehaviour
     {
         lastSkill1Time = Time.time;
         Debug.Log("Skill1 사용");
-        
+
         // DashAttack 애니메이션 재생
         StartCoroutine(PlayAttackAnimation(DASHATTACK));
-        
+
         // Skill_1 생성
         if (skill1Prefab != null)
         {
@@ -499,7 +529,7 @@ public class PlayerController : MonoBehaviour
     private IEnumerator CroushRoutine()
     {
         isCroushing = true;
-        
+
         Collider2D playerCol = GetComponent<Collider2D>();
         GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
         List<Collider2D> ignoredPlatforms = new List<Collider2D>();
@@ -553,7 +583,7 @@ public class PlayerController : MonoBehaviour
                 damageCollider = Damage.AddComponent<BoxCollider2D>();
                 damageCollider.isTrigger = true;
             }
-            
+
             DamageCollisionHandler handler = Damage.GetComponent<DamageCollisionHandler>();
             if (handler == null)
             {
