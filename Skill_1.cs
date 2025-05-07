@@ -6,9 +6,16 @@ public class Skill_1 : MonoBehaviour
     [SerializeField] private float destroyTime = 3f;
     [SerializeField] private int skillDamage = 20;
 
+    private bool piercing = false;
+
+    public void SetPiercing(bool value)
+    {
+        piercing = value;
+    }
+
     private void Start()
     {
-        Destroy(gameObject, destroyTime); // 자동 파괴
+        Destroy(gameObject, destroyTime);
     }
 
     private void Update()
@@ -19,7 +26,6 @@ public class Skill_1 : MonoBehaviour
 
     private void OnTriggerEnter2D(Collider2D collision)
     {
-        // Enemy에게만 데미지를 주되, 충돌한 모든 경우에 파괴는 해야 함
         if (collision.CompareTag("Enemy"))
         {
             EnemyController enemy = collision.GetComponent<EnemyController>();
@@ -27,10 +33,13 @@ public class Skill_1 : MonoBehaviour
             {
                 enemy.TakeDamage(skillDamage);
             }
+
+            // 관통 중이면 여기서 끝냄 (Destroy 안 함)
+            if (piercing) return;
         }
 
-        // 단, Player 자신은 통과
-        if (!collision.CompareTag("Player") && !collision.CompareTag("PlayerDamage"))
+        // 관통 모드가 아니고, 적 외의 다른 오브젝트와 충돌했을 때만 파괴
+        if (!piercing && !collision.CompareTag("Player") && !collision.CompareTag("PlayerDamage"))
         {
             Destroy(gameObject);
         }
