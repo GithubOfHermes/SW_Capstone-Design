@@ -35,10 +35,13 @@ public class PlayerController : MonoBehaviour
 
     [Header("Skills")]
     private float skill1Cooldown = 5f;
-    private float skill2Cooldown = 5f;
+    private float skill2Cooldown = 15f;
     private float lastSkill1Time = -999f;
     private float lastSkill2Time = -999f;
     [SerializeField] private GameObject skill1Prefab; // Skill_1 프리팹 
+    private bool isSkill2Active = false;
+    private float skill2Duration = 5f;
+    private float skill2Multiplier = 2f;
 
     [Header("Animation")]
     private readonly string IDLE = "Idle";
@@ -54,6 +57,17 @@ public class PlayerController : MonoBehaviour
     [Header("Attack")]
     [SerializeField] private float attackDamage = 5f;
 
+    [Header("Sound")]
+    [SerializeField]private AudioSource audioSource;
+    public AudioClip attackSound;
+    public AudioClip skill1_Sound;
+    public AudioClip skill2_Sound;
+    public AudioClip dashSound;
+    public AudioClip jumpSound;
+    public AudioClip deathSound;
+    public AudioClip hurtSound;
+    public AudioClip coinSound;
+    
     private bool isCroushing = false;
     private bool isHurting = false;
 
@@ -63,6 +77,12 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
         currentHP = maxHP;
+        audioSource = GetComponent<AudioSource>();
+        if (SoundManager.Instance == null)
+        {
+            GameObject sm = new GameObject("SoundManager");
+            sm.AddComponent<SoundManager>();
+        }
     }
 
     public bool IsInvincible() => isInvincible;
@@ -92,6 +112,10 @@ public class PlayerController : MonoBehaviour
     private void Die()
     {
         isDead = true;
+        if (deathSound != null)
+        {
+            SoundManager.Instance.PlaySound(deathSound, 0.02f);
+        }
         animator.Play(DEATH);
         rb.linearVelocity = Vector2.zero;
         enabled = false;
@@ -120,6 +144,11 @@ public class PlayerController : MonoBehaviour
         isInvincible = true;
         currentAnim = HURT;
         animator.Play(HURT);
+
+        if (hurtSound != null)
+        {
+            SoundManager.Instance.PlaySound(hurtSound, 0.05f);
+        }
 
         float hurtAnimLength = 0.5f;
         foreach (var clip in animator.runtimeAnimatorController.animationClips)
@@ -158,8 +187,6 @@ public class PlayerController : MonoBehaviour
         isInvincible = false;
         currentAnim = "";
     }
-
-
 
     private void Update()
     {
@@ -216,6 +243,10 @@ public class PlayerController : MonoBehaviour
         else if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
         {
             rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+            if (jumpSound != null)
+            {
+                SoundManager.Instance.PlaySound(jumpSound, 0.02f);
+            }
             if (!isAttacking)
             {
                 PlayAnimationIfNotPlaying(JUMP);
@@ -228,7 +259,6 @@ public class PlayerController : MonoBehaviour
             PlayAnimationIfNotPlaying(JUMP);
             PlayAnimationIfNotPlaying(JUMP_TO_FALL);
         }
-
 
         // Dash
         if (Input.GetMouseButtonDown(1) && !isDashing)
@@ -253,11 +283,14 @@ public class PlayerController : MonoBehaviour
             ItemPickup closest = PickupController.GetClosestPickup(transform.position);
             if (closest != null)
             {
+                if (coinSound != null)
+                {
+                    SoundManager.Instance.PlaySound(coinSound, 0.05f);
+                }
                 PickupEffectHandler.Apply(closest.pickupType, closest.healAmount, closest.goldAmount);
                 Destroy(closest.transform.root.gameObject); // 전체 프리팹 제거
             }
         }
-
     }
 
     private int groundContactCount = 0;
@@ -310,6 +343,11 @@ public class PlayerController : MonoBehaviour
         isDashing = true;
         currentAnim = DASH;
         animator.Play(DASH);
+
+        if (dashSound != null)
+        {
+            SoundManager.Instance.PlaySound(dashSound, 0.03f);
+        }
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
         GameObject[] enemyAttacks = GameObject.FindGameObjectsWithTag("EnemyAttack");
@@ -413,8 +451,6 @@ public class PlayerController : MonoBehaviour
         HUDManager.Instance.EndDash();
     }
 
-
-
     public float GetDashCooldown() => dashCooldown;
 
     private IEnumerator PlatformIgnoringJump()
@@ -450,11 +486,17 @@ public class PlayerController : MonoBehaviour
         }
         ignoredPlatforms.Clear();
     }
+
     private IEnumerator PlayAttackAnimation(string animationName)
     {
         isAttacking = true;
         currentAnim = animationName; // 현재 애니메이션 이름 고정
         animator.Play(animationName);
+
+        if (attackSound != null)
+        {
+            SoundManager.Instance.PlaySound(attackSound, 0.05f);
+        }
 
         if (Damage != null)
         {
@@ -489,7 +531,6 @@ public class PlayerController : MonoBehaviour
         currentAnim = ""; // 공격 종료 후 currentAnim 초기화
     }
 
-
     private string currentAnim = "";
 
     private void PlayAnimationIfNotPlaying(string animationName)
@@ -500,11 +541,16 @@ public class PlayerController : MonoBehaviour
         currentAnim = animationName;
     }
 
-
     private void UseSkill1()
     {
         lastSkill1Time = Time.time;
         Debug.Log("Skill1 사용");
+
+        // 사운드 재생 추가
+        if (skill1_Sound != null)
+        {
+            SoundManager.Instance.PlaySound(skill1_Sound, 0.01f);
+        }
 
         // DashAttack 애니메이션 재생
         StartCoroutine(PlayAttackAnimation(DASHATTACK));
@@ -516,14 +562,36 @@ public class PlayerController : MonoBehaviour
             Vector3 spawnPos = transform.position + new Vector3(direction * 2f, 0f, 0f);
             GameObject skill = Instantiate(skill1Prefab, spawnPos, Quaternion.identity);
             skill.transform.localScale = new Vector3(direction, 1f, 1f); // 방향 설정
+
+            // Skill2가 활성화 상태일 경우 관통 설정
+            Skill_1 skill1Script = skill.GetComponent<Skill_1>();
+            if (skill1Script != null)
+            {
+                skill1Script.SetPiercing(isSkill2Active);
+            }
         }
     }
 
     private void UseSkill2()
     {
+        if (isSkill2Active) return;
         lastSkill2Time = Time.time;
         Debug.Log("Skill2 사용");
-        // 여기에 Skill2의 구현 가능
+        if (skill2_Sound != null)
+        {
+            SoundManager.Instance.PlaySound(skill2_Sound, 0.03f);
+        }
+        StartCoroutine(Skill2Routine());
+    }
+
+    private IEnumerator Skill2Routine()
+    {
+        isSkill2Active = true;
+        float originalDamage = attackDamage;
+        attackDamage *= skill2Multiplier;
+        yield return new WaitForSeconds(skill2Duration);
+        attackDamage = originalDamage;
+        isSkill2Active = false;
     }
 
     private IEnumerator CroushRoutine()
