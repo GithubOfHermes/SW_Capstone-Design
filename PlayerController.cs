@@ -27,7 +27,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Dash Settings")]
     private float dashCooldown = 2.5f;
-    private float dashDuration = 0.4f;
+    private float dashDuration = 0.6f;
 
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
@@ -39,6 +39,8 @@ public class PlayerController : MonoBehaviour
     private float lastSkill1Time = -999f;
     private float lastSkill2Time = -999f;
     [SerializeField] private GameObject skill1Prefab; // Skill_1 프리팹 
+    [SerializeField] private GameObject skill2Prefab; // Skill_2 프리팹 
+    [SerializeField] private GameObject synergy1Prefab; // Synergy1 프리팹 
     private bool isSkill2Active = false;
     private float skill2Duration = 5f;
     private float skill2Multiplier = 2f;
@@ -58,7 +60,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float attackDamage = 5f;
 
     [Header("Sound")]
-    [SerializeField]private AudioSource audioSource;
+    [SerializeField] private AudioSource audioSource;
     public AudioClip attackSound;
     public AudioClip skill1_Sound;
     public AudioClip skill2_Sound;
@@ -67,10 +69,10 @@ public class PlayerController : MonoBehaviour
     public AudioClip deathSound;
     public AudioClip hurtSound;
     public AudioClip coinSound;
-    
+    public AudioClip heartSound;
+
     private bool isCroushing = false;
     private bool isHurting = false;
-
 
     private void Start()
     {
@@ -206,7 +208,7 @@ public class PlayerController : MonoBehaviour
         // Flip
         if (moveInput != 0)
         {
-            transform.localScale = new Vector3(Mathf.Sign(moveInput) * 1.5f, 1.5f, 1.5f);
+            transform.localScale = new Vector3(Mathf.Sign(moveInput) * 1.15f, 1.15f, 1.15f);
         }
 
         // Skills
@@ -279,13 +281,14 @@ public class PlayerController : MonoBehaviour
         }
 
         // Z 키를 눌렀을 때 가장 가까운 아이템 줍기
-        if (Input.GetKeyDown(KeyCode.Z)){
+        if (Input.GetKeyDown(KeyCode.Z))
+        {
             ItemPickup closest = PickupController.GetClosestPickup(transform.position);
             if (closest != null)
             {
-                if (coinSound != null)
+                if (heartSound != null)
                 {
-                    SoundManager.Instance.PlaySound(coinSound, 0.05f);
+                    SoundManager.Instance.PlaySound(heartSound, 0.05f);
                 }
                 PickupEffectHandler.Apply(closest.pickupType, closest.healAmount, closest.goldAmount);
                 Destroy(closest.transform.root.gameObject); // 전체 프리팹 제거
@@ -320,6 +323,18 @@ public class PlayerController : MonoBehaviour
         {
             isOnTrap = true;
         }
+
+        // 추가: Coin과 충돌 시 sound 재생
+        ItemPickup pickup = other.GetComponent<ItemPickup>();
+        if (pickup != null && pickup.pickupType == ItemPickup.PickupType.Coin)
+        {
+            if (coinSound != null)
+            {
+                SoundManager.Instance.PlaySound(coinSound, 0.05f);
+            }
+        }
+
+
     }
 
     private void OnTriggerExit2D(Collider2D other)
@@ -414,11 +429,6 @@ public class PlayerController : MonoBehaviour
             dashSpeed *= 0.85f;
         }
 
-        // 대각선 대시만 느리게
-        if (dashDirection.x != 0 && dashDirection.y != 0)
-        {
-            dashSpeed *= 0.9f; // 대각선 감속
-        }
 
         rb.linearVelocity = dashDirection * dashSpeed;
 
@@ -555,12 +565,13 @@ public class PlayerController : MonoBehaviour
         // DashAttack 애니메이션 재생
         StartCoroutine(PlayAttackAnimation(DASHATTACK));
 
-        // Skill_1 생성
-        if (skill1Prefab != null)
+        // Skill_1 또는 Synergy1 생성
+        GameObject prefabToUse = isSkill2Active ? synergy1Prefab : skill1Prefab;
+        if (prefabToUse != null)
         {
             float direction = transform.localScale.x > 0 ? 1f : -1f;
             Vector3 spawnPos = transform.position + new Vector3(direction * 2f, 0f, 0f);
-            GameObject skill = Instantiate(skill1Prefab, spawnPos, Quaternion.identity);
+            GameObject skill = Instantiate(prefabToUse, spawnPos, Quaternion.identity);
             skill.transform.localScale = new Vector3(direction, 1f, 1f); // 방향 설정
 
             // Skill2가 활성화 상태일 경우 관통 설정
@@ -568,6 +579,7 @@ public class PlayerController : MonoBehaviour
             if (skill1Script != null)
             {
                 skill1Script.SetPiercing(isSkill2Active);
+                skill1Script.SetSkill2Active(isSkill2Active);
             }
         }
     }
@@ -581,6 +593,23 @@ public class PlayerController : MonoBehaviour
         {
             SoundManager.Instance.PlaySound(skill2_Sound, 0.03f);
         }
+
+        // Skill_2 GameObject 활성화
+        if (skill2Prefab != null)
+        {
+            skill2Prefab.SetActive(true);
+        }
+
+        // Skill_1 관통 활성화 및 데미지 증가
+        if (skill1Prefab != null)
+        {
+            Skill_1 skill1Script = skill1Prefab.GetComponent<Skill_1>();
+            if (skill1Script != null)
+            {
+                skill1Script.SetSkill2Active(true);
+            }
+        }
+
         StartCoroutine(Skill2Routine());
     }
 
@@ -592,6 +621,22 @@ public class PlayerController : MonoBehaviour
         yield return new WaitForSeconds(skill2Duration);
         attackDamage = originalDamage;
         isSkill2Active = false;
+
+        // Skill_2 GameObject 비활성화
+        if (skill2Prefab != null)
+        {
+            skill2Prefab.SetActive(false);
+        }
+
+        // Skill_1 데미지 초기화
+        if (skill1Prefab != null)
+        {
+            Skill_1 skill1Script = skill1Prefab.GetComponent<Skill_1>();
+            if (skill1Script != null)
+            {
+                skill1Script.SetSkill2Active(false);
+            }
+        }
     }
 
     private IEnumerator CroushRoutine()
@@ -633,10 +678,20 @@ public class PlayerController : MonoBehaviour
     {
         if (collision.CompareTag("Enemy"))
         {
-            EnemyController enemy = collision.GetComponent<EnemyController>();
-            if (enemy != null)
+            LongRangeMonsterController longEnemy = collision.GetComponent<LongRangeMonsterController>();
+            CloseRangeMonsterController closeEnemy = collision.GetComponent<CloseRangeMonsterController>();
+            EliteMonsterController eliteEnemy = collision.GetComponent<EliteMonsterController>();
+            if (longEnemy != null)
             {
-                enemy.TakeDamage(attackDamage);
+                longEnemy.TakeDamage(attackDamage);
+            }
+            if (closeEnemy != null)
+            {
+                closeEnemy.TakeDamage(attackDamage);
+            }
+            if (eliteEnemy != null)
+            {
+                eliteEnemy.TakeDamage(attackDamage);
             }
         }
     }

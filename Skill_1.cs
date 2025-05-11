@@ -7,10 +7,24 @@ public class Skill_1 : MonoBehaviour
     [SerializeField] private int skillDamage = 20;
 
     private bool piercing = false;
+    private bool isSkill2Active = false;
 
     public void SetPiercing(bool value)
     {
         piercing = value;
+    }
+
+    public void SetSkill2Active(bool value)
+    {
+        isSkill2Active = value;
+        if (isSkill2Active)
+        {
+            skillDamage = (int)(skillDamage * 1.5f);
+        }
+        else
+        {
+            skillDamage = 20; // 원래 데미지로 초기화화
+        }
     }
 
     private void Start()
@@ -28,12 +42,21 @@ public class Skill_1 : MonoBehaviour
     {
         if (collision.CompareTag("Enemy"))
         {
-            EnemyController enemy = collision.GetComponent<EnemyController>();
-            if (enemy != null)
+            LongRangeMonsterController longEnemy = collision.GetComponent<LongRangeMonsterController>();
+            CloseRangeMonsterController closeEnemy = collision.GetComponent<CloseRangeMonsterController>();
+            EliteMonsterController eliteEnemy = collision.GetComponent<EliteMonsterController>();
+            if (longEnemy != null)
             {
-                enemy.TakeDamage(skillDamage);
+                longEnemy.TakeDamage(skillDamage);
             }
-
+            if (closeEnemy != null)
+            {
+                closeEnemy.TakeDamage(skillDamage);
+            }
+            if (eliteEnemy != null)
+            {
+                eliteEnemy.TakeDamage(skillDamage);
+            }
             // 관통 중이면 여기서 끝냄 (Destroy 안 함)
             if (piercing) return;
         }
