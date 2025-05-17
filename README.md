@@ -30,6 +30,7 @@ Unity를 통한 2D 로그라이크 장르의 게임입니다.
 체력 회복 +10
 → currentHP + 10 >= maxHP인 경우, currentHP == maxHP로 설정됩니다.
 
+
 🗡️ 기본 스탯 증가
 - 공격력 +5
 
