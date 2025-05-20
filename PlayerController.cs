@@ -8,6 +8,7 @@ public class PlayerController : MonoBehaviour
     [Header("Components")]
     private Rigidbody2D rb;
     private Animator animator;
+    private Collider2D playerCol; 
     private bool isGrounded;
     private bool isDashing = false;
     private bool isAttacking = false;
@@ -23,7 +24,7 @@ public class PlayerController : MonoBehaviour
     private int currentHP;
     private int maxHP = 100;
     private float lastDamageTime = -999f;
-    [SerializeField] private float repeatDamageCooldown = 2.0f;
+    [SerializeField] private float repeatDamageCooldown = 1.2f;
 
     [Header("Dash Settings")]
     private float dashCooldown = 2.5f;
@@ -31,7 +32,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
-    [SerializeField] private float jumpForce = 15f;
+    [SerializeField] private float jumpForce = 12f;
 
     [Header("Skills")]
     private float skill1Cooldown = 5f;
@@ -78,12 +79,37 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
+        playerCol = GetComponent<Collider2D>(); 
+
+        maxHP = 100 + PlayerUpgradeData.bonusMaxHP;
         currentHP = maxHP;
+
+        attackDamage += PlayerUpgradeData.bonusAttackDamage;
         audioSource = GetComponent<AudioSource>();
         if (SoundManager.Instance == null)
         {
             GameObject sm = new GameObject("SoundManager");
             sm.AddComponent<SoundManager>();
+        }
+
+        // ← 이동 중에도 Enemy 충돌 무시 (단 데미지는 받도록)
+        IgnoreEnemyCollisionPermanently(); 
+        IgnoreHeartCollision();
+    }
+
+    // ← 적과 물리 충돌은 항상 무시 (대시 전후 관계없이), 데미지는 여전히 유효함
+    private void IgnoreEnemyCollisionPermanently()
+    {
+        GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
+        foreach (var enemy in enemies)
+        {
+            foreach (var col in enemy.GetComponentsInChildren<Collider2D>())
+            {
+                if (col != null && playerCol != null)
+                {
+                    Physics2D.IgnoreCollision(playerCol, col, true);
+                }
+            }
         }
     }
 
@@ -94,9 +120,17 @@ public class PlayerController : MonoBehaviour
         if (isDead || isInvincible || Time.time - lastDamageTime < repeatDamageCooldown) return;
 
         lastDamageTime = Time.time;
-        currentHP -= (int)damage;
-        Debug.Log($"Player가 {damage}의 데미지를 받았다! 현재 HP: {currentHP}");
-        HUDManager.Instance.ReduceHP((int)damage);
+        
+        // 피해 감소 적용
+        float reducedDamage = damage * (1f - Mathf.Clamp01(PlayerUpgradeData.damageReductionPercent));
+        int finalDamage = Mathf.RoundToInt(reducedDamage);
+
+        currentHP -= finalDamage;
+
+        Debug.Log($"Player가 {damage} → {finalDamage}의 데미지를 받았다! 현재 HP: {currentHP}");
+
+        // 경감된 데미지로 UI 업데이트
+        HUDManager.Instance.ReduceHP(finalDamage);
 
         if (currentHP <= 0)
         {
@@ -212,11 +246,13 @@ public class PlayerController : MonoBehaviour
         }
 
         // Skills
-        if (Input.GetKeyDown(KeyCode.Q) && Time.time - lastSkill1Time >= skill1Cooldown)
+        float adjustedSkill1Cooldown = skill1Cooldown * (1f - Mathf.Clamp01(PlayerUpgradeData.skillCooldownReductionPercent));
+        if (Input.GetKeyDown(KeyCode.Q) && Time.time - lastSkill1Time >= adjustedSkill1Cooldown)
         {
             UseSkill1();
         }
-        if (Input.GetKeyDown(KeyCode.E) && Time.time - lastSkill2Time >= skill2Cooldown)
+        float adjustedSkill2Cooldown = skill2Cooldown * (1f - Mathf.Clamp01(PlayerUpgradeData.skillCooldownReductionPercent));
+        if (Input.GetKeyDown(KeyCode.E) && Time.time - lastSkill2Time >= adjustedSkill2Cooldown)
         {
             UseSkill2();
         }
@@ -364,24 +400,10 @@ public class PlayerController : MonoBehaviour
             SoundManager.Instance.PlaySound(dashSound, 0.03f);
         }
 
-        GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
         GameObject[] enemyAttacks = GameObject.FindGameObjectsWithTag("EnemyAttack");
         GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
-        Collider2D playerCol = GetComponent<Collider2D>();
 
         // 충돌 무시 설정
-        foreach (var enemy in enemies)
-        {
-            foreach (var col in enemy.GetComponentsInChildren<Collider2D>())
-            {
-                if (col != null && playerCol != null)
-                {
-                    Physics2D.IgnoreCollision(playerCol, col, true);
-                    ignoredEnemies.Add(col);
-                }
-            }
-        }
-
         foreach (var enemyAttack in enemyAttacks)
         {
             foreach (var col in enemyAttack.GetComponentsInChildren<Collider2D>())
@@ -394,17 +416,34 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        foreach (var platform in platforms)
+        bool isOnPlatform = false;
+        ContactFilter2D filter = new ContactFilter2D();
+        filter.useTriggers = false;
+        Collider2D[] hits = new Collider2D[5];
+        int count = playerCol.Overlap(filter, hits);
+        for (int i = 0; i < count; i++)
         {
-            foreach (var col in platform.GetComponentsInChildren<Collider2D>())
+            if (hits[i].CompareTag("Platform"))
             {
-                if (col != null && playerCol != null)
-                {
-                    Physics2D.IgnoreCollision(playerCol, col, true);
-                    ignoredPlatforms.Add(col);
-                }
+                isOnPlatform = true;
+                break;
             }
         }
+
+        if (!isOnPlatform)
+        {
+            foreach (var platform in platforms)
+            {
+                foreach (var col in platform.GetComponentsInChildren<Collider2D>())
+                {
+                    if (col != null && playerCol != null)
+                    {
+                        Physics2D.IgnoreCollision(playerCol, col, true);
+                        ignoredPlatforms.Add(col);
+                    }
+                }
+            }
+    }
 
         // 입력 방향 계산
         Vector2 dashDirection = Vector2.zero;
@@ -421,12 +460,12 @@ public class PlayerController : MonoBehaviour
         // 정규화로 방향 벡터 통일
         dashDirection = dashDirection.normalized;
 
-        float dashSpeed = moveSpeed * 4.2f;
+        float dashSpeed = moveSpeed * 4.0f;
 
         // 좌우 대시 거리만 보정 
         if (dashDirection.y == 0 && Mathf.Abs(dashDirection.x) > 0)
         {
-            dashSpeed *= 0.85f;
+            dashSpeed *= 0.65f;
         }
 
 
@@ -436,16 +475,6 @@ public class PlayerController : MonoBehaviour
 
         // 대시 종료 후 x속도만 정지
         rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
-
-        // 충돌 복구
-        foreach (var col in ignoredEnemies)
-        {
-            if (col != null && playerCol != null)
-            {
-                Physics2D.IgnoreCollision(playerCol, col, false);
-            }
-        }
-        ignoredEnemies.Clear();
 
         foreach (var col in ignoredPlatforms)
         {
@@ -461,7 +490,10 @@ public class PlayerController : MonoBehaviour
         HUDManager.Instance.EndDash();
     }
 
-    public float GetDashCooldown() => dashCooldown;
+    public float GetDashCooldown()
+    {
+        return Mathf.Max(1.0f, dashCooldown - PlayerUpgradeData.dashCooldownReduction);
+    }
 
     private IEnumerator PlatformIgnoringJump()
     {
@@ -569,17 +601,23 @@ public class PlayerController : MonoBehaviour
         GameObject prefabToUse = isSkill2Active ? synergy1Prefab : skill1Prefab;
         if (prefabToUse != null)
         {
-            float direction = transform.localScale.x > 0 ? 1f : -1f;
-            Vector3 spawnPos = transform.position + new Vector3(direction * 2f, 0f, 0f);
-            GameObject skill = Instantiate(prefabToUse, spawnPos, Quaternion.identity);
-            skill.transform.localScale = new Vector3(direction, 1f, 1f); // 방향 설정
+            // 1. 방향 계산 (상하 우선)
+            Vector2 shootDirection = Vector2.zero;
+            if (Input.GetKey(KeyCode.W)) shootDirection = Vector2.up;
+            else if (Input.GetKey(KeyCode.S)) shootDirection = Vector2.down;
+            else shootDirection = transform.localScale.x > 0 ? Vector2.right : Vector2.left;
 
-            // Skill2가 활성화 상태일 경우 관통 설정
+            // 2. 생성 위치 조정
+            Vector3 offset = (Vector3)(shootDirection.normalized * 2f);
+            GameObject skill = Instantiate(prefabToUse, transform.position + offset, Quaternion.identity);
+
+            // 3. 방향 설정 및 회전 반영
             Skill_1 skill1Script = skill.GetComponent<Skill_1>();
             if (skill1Script != null)
             {
                 skill1Script.SetPiercing(isSkill2Active);
                 skill1Script.SetSkill2Active(isSkill2Active);
+                skill1Script.SetDirection(shootDirection);
             }
         }
     }
@@ -714,5 +752,72 @@ public class PlayerController : MonoBehaviour
                 handler.Initialize(OnDamageCollision);
             }
         }
+    }
+
+    public void ForceIdleAndStopDash()
+    {
+        isDashing = false;
+        currentAnim = "";
+        PlayAnimationIfNotPlaying(IDLE);
+    }
+
+    public void IncreaseAttack(float amount)
+    {
+        attackDamage += amount;
+        Debug.Log($"[플레이어] 공격력 증가됨: 현재 공격력 = {attackDamage}");
+    }
+
+    public void StartSceneTransitionInvincibility(float duration)
+    {
+        StartCoroutine(SceneTransitionInvincibility(duration));
+    }
+
+    private IEnumerator SceneTransitionInvincibility(float duration)
+    {
+        isInvincible = true;
+        yield return new WaitForSeconds(duration);
+        isInvincible = false;
+    }
+
+    private void IgnoreHeartCollision()
+    {
+        GameObject[] hearts = GameObject.FindGameObjectsWithTag("Heart");
+        foreach (var heart in hearts)
+        {
+            foreach (var col in heart.GetComponentsInChildren<Collider2D>())
+            {
+                if (col != null && playerCol != null)
+                {
+                    // Trigger는 무시하지 않음
+                    if (!col.isTrigger && !playerCol.isTrigger)
+                    {
+                        Physics2D.IgnoreCollision(playerCol, col, true);
+                    }
+                }
+            }
+        }
+    }
+
+    public float GetAttackDamage()
+    {
+        return attackDamage;
+    }
+
+    public int GetSkill1CurrentDamage()
+    {
+        int baseDamage = 20; // Skill_1 기본값
+        int bonus = PlayerUpgradeData.bonusSkill1Damage;
+        bool skill2Active = isSkill2Active;
+
+        int damage = baseDamage + bonus;
+        if (skill2Active)
+            damage = (int)(damage * 1.5f);
+
+        return damage;
+    }
+
+    public int GetGoldGain()
+    {
+        return 1 + PlayerUpgradeData.bonusGoldGain;
     }
 }
