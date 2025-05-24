@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/dd100ca0-0763-4929-9c2a-68fa2dd28a8c)![image](https://github.com/user-attachments/assets/1d20e052-5638-4dbd-9612-15bc0ba535d8)# 🎮 SW_Capstone-Design
+🎮 SW_Capstone-Design
 
 Unity를 통한 2D 로그라이크 장르의 게임입니다.
 
