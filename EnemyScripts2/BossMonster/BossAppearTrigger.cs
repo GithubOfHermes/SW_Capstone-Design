@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class BossAppearTrigger : MonoBehaviour
 {
-    public GameObject bossObject; // Hierarchy에서 직접 드래그
+    public GameObject bossObject; 
 
     private bool triggered = false;
 
@@ -15,7 +15,7 @@ public class BossAppearTrigger : MonoBehaviour
 
         if (bossObject != null)
         {
-            bossObject.SetActive(true); // 비활성 상태 해제
+            bossObject.SetActive(true);
             BossController boss = bossObject.GetComponent<BossController>();
             if (boss != null)
             {
